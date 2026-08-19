@@ -2835,6 +2835,9 @@ static void do_process_drv_event(struct i802_bss *bss, int cmd,
 			mlme_event_unprot_beacon(drv, nla_data(frame),
 						 nla_len(frame));
 		break;
+	case NL80211_CMD_EXTERNAL_AUTH:
+		nl80211_external_auth(drv, tb);
+		break;
 	default:
 		wpa_dbg(drv->ctx, MSG_DEBUG, "nl80211: Ignored unknown event "
 			"(cmd=%d)", cmd);
