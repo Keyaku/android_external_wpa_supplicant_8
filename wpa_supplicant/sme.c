@@ -1004,7 +1004,8 @@ static int sme_external_auth_build_buf(struct wpabuf *buf,
 
 static int sme_external_auth_send_sae_commit(struct wpa_supplicant *wpa_s,
 					     const u8 *bssid,
-					     struct wpa_ssid *ssid)
+					     struct wpa_ssid *ssid,
+					     unsigned int freq)
 {
 	struct wpabuf *resp, *buf;
 	int use_pt;
@@ -1027,7 +1028,7 @@ static int sme_external_auth_send_sae_commit(struct wpa_supplicant *wpa_s,
 				    bssid, 1, wpa_s->sme.seq_num,
 				    use_pt ? WLAN_STATUS_SAE_HASH_TO_ELEMENT :
 				    WLAN_STATUS_SUCCESS);
-	wpa_drv_send_mlme(wpa_s, wpabuf_head(buf), wpabuf_len(buf), 1, 0, 0);
+	wpa_drv_send_mlme(wpa_s, wpabuf_head(buf), wpabuf_len(buf), 1, freq, 0);
 	wpabuf_free(resp);
 	wpabuf_free(buf);
 
@@ -1055,6 +1056,7 @@ static int sme_handle_external_auth_start(struct wpa_supplicant *wpa_s,
 					  union wpa_event_data *data)
 {
 	struct wpa_ssid *ssid;
+	struct wpa_bss *bss;
 	size_t ssid_str_len = data->external_auth.ssid_len;
 	const u8 *ssid_str = data->external_auth.ssid;
 
@@ -1066,9 +1068,25 @@ static int sme_handle_external_auth_start(struct wpa_supplicant *wpa_s,
 		    (ssid->key_mgmt & (WPA_KEY_MGMT_SAE | WPA_KEY_MGMT_FT_SAE)))
 			break;
 	}
-	if (!ssid ||
-	    sme_external_auth_send_sae_commit(wpa_s, data->external_auth.bssid,
-					      ssid) < 0)
+	if (!ssid)
+		return -1;
+
+	/*
+	 * The external-auth path is entered before wpa_supplicant_associate()
+	 * has set current_bss / assoc_freq, but nl80211 send_mlme needs a
+	 * channel.  Look up the BSS from the BSSID/SSID in the event and pin
+	 * the association frequency now.
+	 */
+	bss = wpa_bss_get(wpa_s, data->external_auth.bssid, ssid_str,
+			  ssid_str_len);
+	if (bss) {
+		wpa_s->current_bss = bss;
+		wpa_s->assoc_freq = bss->freq;
+	}
+
+	if (sme_external_auth_send_sae_commit(wpa_s, data->external_auth.bssid,
+					      ssid,
+					      bss ? bss->freq : 0) < 0)
 		return -1;
 
 	return 0;
@@ -1079,6 +1097,7 @@ static void sme_external_auth_send_sae_confirm(struct wpa_supplicant *wpa_s,
 					       const u8 *da)
 {
 	struct wpabuf *resp, *buf;
+	unsigned int freq = wpa_s->current_bss ? wpa_s->current_bss->freq : 0;
 
 	resp = sme_auth_build_sae_confirm(wpa_s, 1);
 	if (!resp) {
@@ -1097,7 +1116,7 @@ static void sme_external_auth_send_sae_confirm(struct wpa_supplicant *wpa_s,
 	sme_external_auth_build_buf(buf, resp, wpa_s->own_addr,
 				    da, 2, wpa_s->sme.seq_num,
 				    WLAN_STATUS_SUCCESS);
-	wpa_drv_send_mlme(wpa_s, wpabuf_head(buf), wpabuf_len(buf), 1, 0, 0);
+	wpa_drv_send_mlme(wpa_s, wpabuf_head(buf), wpabuf_len(buf), 1, freq, 0);
 	wpabuf_free(resp);
 	wpabuf_free(buf);
 }
@@ -1251,7 +1270,8 @@ static int sme_sae_auth(struct wpa_supplicant *wpa_s, u16 auth_transaction,
 		else
 			sme_external_auth_send_sae_commit(
 				wpa_s, wpa_s->sme.ext_auth_bssid,
-				wpa_s->current_ssid);
+				wpa_s->current_ssid,
+				wpa_s->current_bss ? wpa_s->current_bss->freq : 0);
 		return 0;
 	}
 
@@ -1272,7 +1292,8 @@ static int sme_sae_auth(struct wpa_supplicant *wpa_s, u16 auth_transaction,
 		else
 			sme_external_auth_send_sae_commit(
 				wpa_s, wpa_s->sme.ext_auth_bssid,
-				wpa_s->current_ssid);
+				wpa_s->current_ssid,
+				wpa_s->current_bss ? wpa_s->current_bss->freq : 0);
 		return 0;
 	}
 

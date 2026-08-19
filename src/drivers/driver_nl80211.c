@@ -3929,6 +3929,26 @@ static int wpa_driver_nl80211_send_mlme(struct i802_bss *bss, const u8 *data,
 		freq = bss->freq;
 	}
 
+	/*
+	 * SAE external auth sends commit/confirm through this path. The
+	 * kernel/gen3 driver does not have a monitor interface available for
+	 * STA mode, so route SAE authentication frames through the nl80211
+	 * frame command even if the driver otherwise selects use_monitor.
+	 */
+	if (drv->use_monitor &&
+	    drv->nlmode == NL80211_IFTYPE_STATION &&
+	    (drv->capa.flags & WPA_DRIVER_FLAGS_SAE) &&
+	    !(drv->capa.flags & WPA_DRIVER_FLAGS_SME) &&
+	    WLAN_FC_GET_TYPE(fc) == WLAN_FC_TYPE_MGMT &&
+	    WLAN_FC_GET_STYPE(fc) == WLAN_FC_STYPE_AUTH &&
+	    le_to_host16(mgmt->u.auth.auth_alg) == WLAN_AUTH_SAE) {
+		wpa_printf(MSG_DEBUG,
+			   "nl80211: SAE auth frame - bypass monitor interface");
+		goto send_frame_cmd;
+	}
+
+	wpa_printf(MSG_DEBUG, "nl80211: send_mlme use_monitor=%d freq=%u bss->freq=%u",
+		   drv->use_monitor, freq, bss->freq);
 	if (drv->use_monitor) {
 		wpa_printf(MSG_DEBUG,
 			   "nl80211: send_frame(freq=%u bss->freq=%u) -> send_monitor",
@@ -8260,6 +8280,7 @@ static int nl80211_set_param(void *priv, const char *param)
 
 	if (os_strstr(param, "use_monitor=1"))
 		drv->use_monitor = 1;
+	wpa_printf(MSG_DEBUG, "nl80211: parsed use_monitor=%d", drv->use_monitor);
 
 	if (os_strstr(param, "force_connect_cmd=1")) {
 		drv->capa.flags &= ~WPA_DRIVER_FLAGS_SME;
