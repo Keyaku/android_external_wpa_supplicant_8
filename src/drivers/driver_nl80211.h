@@ -92,6 +92,7 @@ struct wpa_driver_nl80211_data {
 	struct dl_list list;
 	struct dl_list wiphy_list;
 	char phyname[32];
+	char radio_name[32]; /* driver_param radio_name=, overrides phyname */
 	unsigned int wiphy_idx;
 	u8 perm_addr[ETH_ALEN];
 	void *ctx;

@@ -8306,6 +8306,20 @@ static int nl80211_set_param(void *priv, const char *param)
 	if (os_strstr(param, "full_ap_client_state=0"))
 		drv->capa.flags &= ~WPA_DRIVER_FLAGS_FULL_AP_CLIENT_STATE;
 
+	/* Drivers exposing one radio as several wiphys (a separate P2P one)
+	 * name it here, so the interfaces share channels and radio work. */
+	if (os_strstr(param, "radio_name=")) {
+		const char *pos = os_strstr(param, "radio_name=") + 11;
+		const char *end = os_strchr(pos, ' ');
+		size_t len = end ? (size_t) (end - pos) : os_strlen(pos);
+
+		if (len >= sizeof(drv->radio_name))
+			len = sizeof(drv->radio_name) - 1;
+		os_memcpy(drv->radio_name, pos, len);
+		drv->radio_name[len] = '\0';
+		wpa_printf(MSG_DEBUG, "nl80211: radio_name=%s", drv->radio_name);
+	}
+
 	return 0;
 }
 
@@ -8386,7 +8400,7 @@ static const char * nl80211_get_radio_name(void *priv)
 {
 	struct i802_bss *bss = priv;
 	struct wpa_driver_nl80211_data *drv = bss->drv;
-	return drv->phyname;
+	return drv->radio_name[0] ? drv->radio_name : drv->phyname;
 }
 
 
