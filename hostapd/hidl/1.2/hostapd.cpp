@@ -66,6 +66,38 @@ std::string WriteHostapdConfig(
 }
 
 /*
+ * Width settings for a fixed 5 GHz channel: the 40 MHz pair and, with 11ac,
+ * the 80 MHz block it belongs to. Short GI and RX LDPC are what the MT6630
+ * reports; hostapd rejects capabilities the driver lacks.
+ */
+std::string getFixed5gWidthConfig(int channel, bool support11ac)
+{
+	int base;
+	if (channel >= 36 && channel <= 144) {
+		base = 36;
+	} else if (channel >= 149 && channel <= 161) {
+		base = 149;
+	} else {
+		return "";
+	}
+	if ((channel - base) % 4) {
+		return "";
+	}
+	int idx = (channel - base) / 4;
+	std::string ht = (idx % 2) ? "ht_capab=[HT40-][SHORT-GI-20][SHORT-GI-40]"
+				   : "ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40]";
+	if (!support11ac) {
+		return ht;
+	}
+	return StringPrintf(
+	    "%s\n"
+	    "vht_capab=[SHORT-GI-80][RXLDPC]\n"
+	    "vht_oper_chwidth=1\n"
+	    "vht_oper_centr_freq_seg0_idx=%d",
+	    ht.c_str(), base + (idx / 4) * 16 + 6);
+}
+
+/*
  * Get the op_class for a channel/band
  * The logic here is based on Table E-4 in the 802.11 Specification
  */
@@ -342,6 +374,15 @@ std::string CreateHostapdConfig(
 		    band,
 		    iface_params.V1_1.V1_0.hwModeParams.enable80211N,
 		    iface_params.V1_1.V1_0.hwModeParams.enable80211AC);
+		// An 80 MHz AP is operating class 128; a 40 MHz class fails the channel setup.
+		if (iface_params.V1_1.V1_0.hwModeParams.enable80211N &&
+		    iface_params.V1_1.V1_0.hwModeParams.enable80211AC &&
+		    (band & IHostapd::BandMask::BAND_2_GHZ) == 0 &&
+		    (band & IHostapd::BandMask::BAND_5_GHZ) != 0 &&
+		    getFixed5gWidthConfig(iface_params.V1_1.V1_0.channelParams.channel, true)
+			.find("vht_oper_chwidth") != std::string::npos) {
+			op_class = 128;
+		}
 		channel_config_as_string = StringPrintf(
 		    "channel=%d\n"
 		    "op_class=%d",
@@ -371,6 +412,11 @@ std::string CreateHostapdConfig(
 				ht_cap_vht_oper_chwidth_as_string =
 				    "ht_capab=[HT40+]\n"
 				    "vht_oper_chwidth=1";
+			} else if (iface_params.V1_1.V1_0.hwModeParams.enable80211N &&
+				   (band & IHostapd::BandMask::BAND_5_GHZ) != 0) {
+				ht_cap_vht_oper_chwidth_as_string = getFixed5gWidthConfig(
+				    iface_params.V1_1.V1_0.channelParams.channel,
+				    iface_params.V1_1.V1_0.hwModeParams.enable80211AC);
 			}
 		} else {
 			wpa_printf(MSG_ERROR, "Invalid band");

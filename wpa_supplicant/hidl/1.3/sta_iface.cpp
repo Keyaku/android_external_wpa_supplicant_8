@@ -1058,7 +1058,11 @@ SupplicantStatus StaIface::setCountryCodeInternal(
 	    wpa_s, kSetCountryCode,
 	    std::string(std::begin(code), std::end(code)));
 	if (status.code != SupplicantStatusCode::SUCCESS) {
-		return status;
+		// Drivers without the private COUNTRY command take the nl80211 regulatory hint.
+		char alpha2[3] = {(char)code[0], (char)code[1], 0};
+		if (wpa_drv_set_country(wpa_s, alpha2) < 0) {
+			return status;
+		}
 	}
 	struct p2p_data *p2p = wpa_s->global->p2p;
 	if (p2p) {
